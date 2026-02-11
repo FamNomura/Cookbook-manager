@@ -7,11 +7,10 @@ import datetime
 # --- 設定 ---
 st.set_page_config(page_title="レシピ投稿", page_icon="🍳")
 
-# GitHubへの接続とカテゴリ取得（キャッシュ機能付き）
+# GitHubへの接続とカテゴリ取得
 @st.cache_data(ttl=600)
 def get_existing_categories():
     try:
-        # シークレットが設定されていない場合の安全策
         if "GITHUB_TOKEN" not in st.secrets:
             return []
             
@@ -55,56 +54,52 @@ def format_steps(text):
     return "\n".join(formatted)
 
 # --- UI構築 ---
-st.title("🍳 レシピ投稿アプリ Ver.2.1")
+st.title("🍳 レシピ投稿アプリ Ver.3.0")
 
-# カテゴリの読み込み
+# 1. カテゴリ選択（フォームの外に出しました）
+# これで操作した瞬間に画面が反応します
+st.subheader("① カテゴリを決める")
 existing_cats = get_existing_categories()
+cat_mode = st.radio("入力モード", ["既存から選ぶ", "新規作成する"], horizontal=True)
 
-# フォーム開始
+final_category = ""
+
+if cat_mode == "既存から選ぶ":
+    if existing_cats:
+        final_category = st.selectbox("カテゴリ一覧", existing_cats)
+    else:
+        st.warning("カテゴリが見つかりません。新規作成してください。")
+else:
+    # 新規作成モード
+    new_cat_input = st.text_input("新しいカテゴリ名", placeholder="例：調味料/自家製ダレ")
+    final_category = new_cat_input
+
+# 2. その他の入力（ここから下はフォームにします）
+st.subheader("② レシピを入力する")
+
 with st.form("recipe_form"):
-    # 1. 料理名
     title = st.text_input("料理名", placeholder="例：豚の角煮")
     
-    # 2. カテゴリ選択（堅牢化：ラジオボタンで明示的にモード切替）
-    st.markdown("### カテゴリ設定")
-    cat_mode = st.radio("モード選択", ["既存から選ぶ", "新規作成する"], horizontal=True)
-    
-    final_category = ""
-    
-    if cat_mode == "既存から選ぶ":
-        if existing_cats:
-            final_category = st.selectbox("カテゴリ一覧", existing_cats)
-        else:
-            st.warning("既存のカテゴリが見つかりません。「新規作成する」を選んでください。")
-    else:
-        # 新規作成モード
-        new_cat_input = st.text_input("新しいカテゴリ名を入力", placeholder="例：麺類/ラーメン")
-        final_category = new_cat_input
-
-    # 3. 画像
     uploaded_file = st.file_uploader("料理の写真", type=['jpg', 'jpeg', 'png'])
 
-    # 4. 材料（自動整形）
-    st.markdown("### 材料")
-    st.caption("改行で区切って入力してください")
-    raw_ingredients = st.text_area("材料入力", placeholder="豚肉 200g\n玉ねぎ 1個", height=150, label_visibility="collapsed")
+    st.markdown("材料 (改行で区切る)")
+    raw_ingredients = st.text_area("材料", height=150, label_visibility="collapsed")
 
-    # 5. 手順（自動整形）
-    st.markdown("### 手順")
-    st.caption("改行で区切って入力してください（番号は自動でつきます）")
-    raw_steps = st.text_area("手順入力", placeholder="切る\n焼く\n煮る", height=150, label_visibility="collapsed")
+    st.markdown("手順 (改行で区切る)")
+    raw_steps = st.text_area("手順", height=150, label_visibility="collapsed")
 
-    # 6. メモ
-    memo = st.text_area("メモ・ポイント", placeholder="コツや代用食材など")
+    memo = st.text_area("メモ・ポイント")
 
+    # フォームの送信ボタン
     submitted = st.form_submit_button("レシピを投稿する", type="primary")
 
 # --- 送信処理 ---
 if submitted:
+    # フォームの外にある変数をここでチェックします
     if not title:
         st.error("エラー：料理名を入力してください")
     elif not final_category:
-        st.error("エラー：カテゴリが空欄です")
+        st.error("エラー：カテゴリが入力されていません")
     else:
         try:
             with st.spinner("送信中..."):
@@ -152,7 +147,6 @@ if submitted:
                     md_content += f"## メモ\n{memo}\n"
 
                 # C. ファイル作成
-                # カテゴリ末尾の余計な空白などを除去
                 clean_category = final_category.strip().strip("/")
                 file_path = f"docs/{clean_category}/{title}.md"
                 
@@ -164,7 +158,7 @@ if submitted:
                 
                 st.cache_data.clear()
                 st.balloons()
-                st.success(f"投稿完了！\nカテゴリ: {clean_category} に保存しました。")
+                st.success(f"投稿完了！\nカテゴリ: {clean_category}")
 
         except Exception as e:
             st.error(f"エラーが発生しました: {e}")
