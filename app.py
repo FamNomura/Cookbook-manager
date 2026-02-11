@@ -1,5 +1,5 @@
 import streamlit as st
-from github import Github
+from github import Github, UnknownObjectException
 from PIL import Image
 import io
 import datetime
@@ -54,10 +54,9 @@ def format_steps(text):
     return "\n".join(formatted)
 
 # --- UI構築 ---
-st.title("🍳 レシピ投稿アプリ Ver.3.0")
+st.title("🍳 レシピ投稿アプリ Ver.3.1")
 
-# 1. カテゴリ選択（フォームの外に出しました）
-# これで操作した瞬間に画面が反応します
+# 1. カテゴリ選択（フォーム外）
 st.subheader("① カテゴリを決める")
 existing_cats = get_existing_categories()
 cat_mode = st.radio("入力モード", ["既存から選ぶ", "新規作成する"], horizontal=True)
@@ -70,15 +69,14 @@ if cat_mode == "既存から選ぶ":
     else:
         st.warning("カテゴリが見つかりません。新規作成してください。")
 else:
-    # 新規作成モード
     new_cat_input = st.text_input("新しいカテゴリ名", placeholder="例：調味料/自家製ダレ")
     final_category = new_cat_input
 
-# 2. その他の入力（ここから下はフォームにします）
+# 2. レシピ入力
 st.subheader("② レシピを入力する")
 
 with st.form("recipe_form"):
-    title = st.text_input("料理名", placeholder="例：豚の角煮")
+    title = st.text_input("料理名", placeholder="例：豚の角煮（これファイル名になります）")
     
     uploaded_file = st.file_uploader("料理の写真", type=['jpg', 'jpeg', 'png'])
 
@@ -90,12 +88,10 @@ with st.form("recipe_form"):
 
     memo = st.text_area("メモ・ポイント")
 
-    # フォームの送信ボタン
     submitted = st.form_submit_button("レシピを投稿する", type="primary")
 
 # --- 送信処理 ---
 if submitted:
-    # フォームの外にある変数をここでチェックします
     if not title:
         st.error("エラー：料理名を入力してください")
     elif not final_category:
@@ -126,6 +122,7 @@ if submitted:
                     timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
                     img_filename = f"img_{timestamp}.jpg"
                     
+                    # 画像は常に新規作成（ファイル名が時間依存なので競合しない）
                     repo.create_file(
                         path=f"docs/images/{img_filename}",
                         message=f"Add image for {title}",
@@ -146,19 +143,35 @@ if submitted:
                 if memo:
                     md_content += f"## メモ\n{memo}\n"
 
-                # C. ファイル作成
+                # C. ファイル作成・更新処理（ここを修正しました）
                 clean_category = final_category.strip().strip("/")
                 file_path = f"docs/{clean_category}/{title}.md"
                 
-                repo.create_file(
-                    path=file_path,
-                    message=f"Add recipe: {title}",
-                    content=md_content
-                )
-                
+                try:
+                    # 1. まずファイルが存在するか確認する
+                    contents = repo.get_contents(file_path)
+                    
+                    # 2. 存在する場合は「更新(update)」を行う
+                    repo.update_file(
+                        path=file_path,
+                        message=f"Update recipe: {title}",
+                        content=md_content,
+                        sha=contents.sha  # 上書きにはこのSHAが必要
+                    )
+                    action_msg = "レシピを更新（上書き）しました！"
+                    
+                except UnknownObjectException:
+                    # 3. 存在しない場合は「新規作成(create)」を行う
+                    repo.create_file(
+                        path=file_path,
+                        message=f"Add recipe: {title}",
+                        content=md_content
+                    )
+                    action_msg = "新しいレシピを作成しました！"
+
                 st.cache_data.clear()
                 st.balloons()
-                st.success(f"投稿完了！\nカテゴリ: {clean_category}")
+                st.success(f"投稿完了！\n{action_msg}\nカテゴリ: {clean_category}")
 
         except Exception as e:
             st.error(f"エラーが発生しました: {e}")
